@@ -200,6 +200,7 @@ impl<'p> Class<'p> {
                 let mut e = Enum {
                     index: type_index,
                     name,
+                    unsigned_width: Enum::unsigned_width(type_finder, data.underlying_type)?,
                     underlying_type_name: type_name(
                         type_finder,
                         type_forwarder,
@@ -257,7 +258,7 @@ impl<'p> Class<'p> {
                     needed_types,
                 )?;
                 let type_bitfield_info = type_bitfield_info(type_finder, complete_type_index)?;
-                let type_size = type_size(type_finder, complete_type_index)?;
+                let type_size = type_size(type_finder, type_forwarder, complete_type_index)?;
                 let access = FieldAccess::from_field_attribute(data.attributes.access());
 
                 self.fields.push(Field {
@@ -266,6 +267,11 @@ impl<'p> Class<'p> {
                     name: data.name,
                     offset: data.offset,
                     size: type_size,
+                    alignment: super::layout::type_alignment(
+                        type_finder,
+                        type_forwarder,
+                        complete_type_index,
+                    )?,
                     bitfield_info: type_bitfield_info,
                     access,
                 });
@@ -423,6 +429,18 @@ impl ReconstructibleTypeData for Class<'_> {
         fmt_configuration: &DataFormatConfiguration,
         f: &mut impl std::fmt::Write,
     ) -> fmt::Result {
+        let storage_layout = self.kind == pdb::ClassKind::Struct
+            && self.base_classes.is_empty()
+            && self.instance_methods.is_empty()
+            && self.static_methods.is_empty()
+            && self.static_fields.is_empty();
+        if storage_layout {
+            writeln!(
+                f,
+                "#pragma pack(push, {})",
+                super::layout::packing(&self.fields, self.size)
+            )?;
+        }
         write!(
             f,
             "{} {}",
@@ -476,7 +494,11 @@ impl ReconstructibleTypeData for Class<'_> {
         }
 
         // Dump fields while detecting unnamed structs and unions
-        fmt_struct_fields_recursive(fmt_configuration, &self.fields, 1, f)?;
+        if storage_layout {
+            super::layout::fields(fmt_configuration, &self.fields, false, self.size, f)?;
+        } else {
+            fmt_struct_fields_recursive(fmt_configuration, &self.fields, 1, f)?;
+        }
 
         // Static fields
         for field in &self.static_fields {
@@ -569,6 +591,9 @@ impl ReconstructibleTypeData for Class<'_> {
         }
 
         writeln!(f, "}};")?;
+        if storage_layout {
+            writeln!(f, "#pragma pack(pop)")?;
+        }
 
         Ok(())
     }

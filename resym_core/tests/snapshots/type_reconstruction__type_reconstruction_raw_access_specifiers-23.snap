@@ -2,7 +2,9 @@
 source: resym_core/tests/type_reconstruction.rs
 expression: reconstructed_type
 ---
+#pragma pack(push, 8)
 struct resym_test::NtdllRegression1 { /* Size=0xe8 */
   /* 0x0000 */ public: void (* KernelRoutine)(resym_test::_KAPC*, void (**)(void*, void*, void*), void**, void**, void**);
   /* 0x0008 */ public: int (* MajorFunction[28])(resym_test::_DEVICE_OBJECT*, resym_test::_IRP*);
 };
+#pragma pack(pop)

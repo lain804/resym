@@ -12,9 +12,22 @@ pub struct ForwardDeclaration {
 impl ReconstructibleTypeData for ForwardDeclaration {
     fn reconstruct(
         &self,
-        _fmt_configuration: &DataFormatConfiguration,
+        fmt_configuration: &DataFormatConfiguration,
         f: &mut impl std::fmt::Write,
     ) -> fmt::Result {
+        if fmt_configuration.c_compatible {
+            return writeln!(
+                f,
+                "typedef {} {} {};",
+                if self.kind == ForwardDeclarationKind::Union {
+                    "union"
+                } else {
+                    "struct"
+                },
+                self.name,
+                self.name
+            );
+        }
         writeln!(
             f,
             "{} {};",

@@ -2,7 +2,7 @@
 source: resym_core/tests/type_reconstruction.rs
 expression: reconstructed_type
 ---
-
+#pragma pack(push, 8)
 struct resym_test::StructUnnamedUdtTest1 { /* Size=0xa0 */
   union {
     struct {
@@ -34,6 +34,7 @@ struct resym_test::StructUnnamedUdtTest1 { /* Size=0xa0 */
   };
   /* 0x0084 */ public: LONG i6;
   /* 0x0088 */ public: LONG i7;
+  /* 0x008c */ unsigned char __resym_padding_0[4];
   union {
     /* 0x0090 */ public: PVOID c1;
     /* 0x0090 */ public: CHAR c2;
@@ -41,4 +42,4 @@ struct resym_test::StructUnnamedUdtTest1 { /* Size=0xa0 */
   /* 0x0098 */ public: LONG i8;
   /* 0x009c */ public: LONG i9;
 };
-
+#pragma pack(pop)

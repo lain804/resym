@@ -9,6 +9,8 @@ pub struct Field<'p> {
     pub offset: u64,
     /// Size of the field in bytes.
     pub size: usize,
+    /// Natural member alignment, constrained by recorded aggregate offsets.
+    pub alignment: u64,
     /// Offset and size of the field in bits, within the current type's size (0 means LSB).
     /// Present only for bitfield members.
     pub bitfield_info: Option<(u8, u8)>,

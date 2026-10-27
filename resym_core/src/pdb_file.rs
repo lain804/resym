@@ -812,6 +812,7 @@ where
         let fmt_configuration = DataFormatConfiguration {
             print_access_specifiers,
             integers_as_hexadecimal,
+            ..Default::default()
         };
         let mut type_data = pdb_types::Data::new(ignore_std_types);
 
@@ -909,6 +910,84 @@ where
         Ok((reconstruction_output, xrefs_from))
     }
 
+    /// Reconstruct C/C++ storage declarations using an explicit format.
+    /// A selection of None exports all types. Pointer-only dependencies remain
+    /// forward declarations; by-value dependencies precede their users.
+    pub fn reconstruct_types(
+        &self,
+        selection: Option<&str>,
+        primitives: PrimitiveReconstructionFlavor,
+        dependencies: bool,
+        ignore_std_types: bool,
+        format: &DataFormatConfiguration,
+    ) -> Result<String> {
+        let mut finder = self.type_information.finder();
+        let mut iter = self.type_information.iter();
+        let mut all_indices = Vec::new();
+        while let Some(item) = iter.next()? {
+            finder.update(&iter);
+            all_indices.push(item.index().0);
+        }
+        let roots = if let Some(name) = selection {
+            vec![self
+                .complete_type_list
+                .iter()
+                .rev()
+                .find(|item| item.0 == name)
+                .map(|item| item.1)
+                .ok_or_else(|| ResymCoreError::TypeNameNotFoundError(name.to_owned()))?]
+        } else {
+            all_indices
+        };
+        let mut data = pdb_types::Data::new(ignore_std_types);
+        let mut queue = VecDeque::from(roots.clone());
+        let mut processed = HashSet::new();
+        let mut graph = HashMap::new();
+        while let Some(index) = queue.pop_front() {
+            let index = pdb_types::resolve_complete_type_index(
+                &self.forwarder_to_complete_type,
+                index.into(),
+            );
+            if !processed.insert(index) {
+                continue;
+            }
+            let mut needed = pdb_types::NeededTypeSet::new();
+            data.add(
+                &finder,
+                &self.forwarder_to_complete_type,
+                index,
+                &primitives,
+                &mut needed,
+            )?;
+            for (child, pointer) in &needed {
+                if *pointer {
+                    data.add_as_forward_declaration(&finder, *child)?;
+                }
+                if dependencies || selection.is_none() {
+                    queue.push_back(child.0);
+                }
+            }
+            graph.insert(
+                index.0,
+                needed
+                    .into_iter()
+                    .map(|(index, pointer)| (index.0, pointer))
+                    .collect(),
+            );
+        }
+        let order = if dependencies || selection.is_none() {
+            compute_type_depth_map(&graph, &roots)
+        } else {
+            BTreeMap::new()
+        };
+        let mut output = String::new();
+        if format.c_compatible && primitives == PrimitiveReconstructionFlavor::Microsoft {
+            writeln!(output, "#include <Windows.h>")?;
+        }
+        data.reconstruct(format, &order, &mut output)?;
+        Ok(output)
+    }
+
     pub fn reconstruct_all_types(
         &self,
         primitives_flavor: PrimitiveReconstructionFlavor,
@@ -989,6 +1068,7 @@ where
             &DataFormatConfiguration {
                 print_access_specifiers,
                 integers_as_hexadecimal,
+                ..Default::default()
             },
             &type_depth_map,
             &mut reconstruction_output,
@@ -1249,49 +1329,59 @@ fn compute_type_depth_map(
     type_dependency_map: &HashMap<TypeIndex, Vec<(TypeIndex, bool)>>,
     root_types: &[TypeIndex],
 ) -> BTreeMap<usize, Vec<pdb::TypeIndex>> {
-    let depth_start = Instant::now();
-
-    let mut type_depth_map: HashMap<TypeIndex, usize> =
-        HashMap::from_iter(root_types.iter().map(|elem| (*elem, 0)));
-    // Perform depth-first search to determine the "depth" of each type
-    let mut types_to_visit: VecDeque<(usize, TypeIndex)> =
-        VecDeque::from_iter(root_types.iter().map(|elem| (0, *elem)));
-    while let Some((current_type_depth, current_type_index)) = types_to_visit.pop_back() {
-        if let Some(type_dependencies) = type_dependency_map.get(&current_type_index) {
-            for (child_type_index, child_is_pointer) in type_dependencies {
-                // Visit child only if it's directly referenced, to avoid infinite loops
-                if !child_is_pointer && *child_type_index != current_type_index {
-                    let current_child_depth = current_type_depth + 1;
-                    if let Some(child_type_depth) = type_depth_map.get_mut(child_type_index) {
-                        *child_type_depth = std::cmp::max(*child_type_depth, current_child_depth);
-                    } else {
-                        type_depth_map.insert(*child_type_index, current_child_depth);
-                    }
-                    types_to_visit.push_back((current_child_depth, *child_type_index));
-                }
+    // Kahn ordering avoids unbounded walks through malformed dependency cycles.
+    // BTree collections make independent declarations deterministic across runs.
+    let mut pending = std::collections::BTreeSet::new();
+    let mut children = BTreeMap::<TypeIndex, std::collections::BTreeSet<TypeIndex>>::new();
+    let mut parents = BTreeMap::<TypeIndex, Vec<TypeIndex>>::new();
+    let mut visit = root_types.to_vec();
+    while let Some(index) = visit.pop() {
+        if children.contains_key(&index) {
+            continue;
+        }
+        let dependencies = type_dependency_map
+            .get(&index)
+            .into_iter()
+            .flatten()
+            .filter(|(child, pointer)| !pointer && *child != index)
+            .map(|(child, _)| *child)
+            .collect::<std::collections::BTreeSet<_>>();
+        for child in &dependencies {
+            parents.entry(*child).or_default().push(index);
+            visit.push(*child);
+        }
+        if dependencies.is_empty() {
+            pending.insert(index);
+        }
+        children.insert(index, dependencies);
+    }
+    let mut order = Vec::new();
+    while let Some(index) = pending.pop_first() {
+        order.push(index);
+        for parent in parents.get(&index).into_iter().flatten() {
+            let remaining = children.get_mut(parent).expect("dependency owner exists");
+            remaining.remove(&index);
+            if remaining.is_empty() {
+                pending.insert(*parent);
             }
         }
     }
-
-    // Invert type depth map
-    let inverted_type_depth_map: BTreeMap<usize, Vec<pdb::TypeIndex>> = type_depth_map
+    if order.len() != children.len() {
+        log::warn!("Cyclic by-value type dependencies: output may be incomplete");
+        let emitted = order.iter().copied().collect::<HashSet<_>>();
+        order.extend(
+            children
+                .keys()
+                .filter(|index| !emitted.contains(index))
+                .copied(),
+        );
+    }
+    let count = order.len();
+    order
         .into_iter()
-        .fold(BTreeMap::new(), |mut acc, (type_index, type_depth)| {
-            if let Some(type_indices) = acc.get_mut(&type_depth) {
-                type_indices.push(type_index.into());
-            } else {
-                acc.insert(type_depth, vec![type_index.into()]);
-            }
-
-            acc
-        });
-
-    log::debug!(
-        "Depth calculation took {} ms",
-        depth_start.elapsed().as_millis()
-    );
-
-    inverted_type_depth_map
+        .enumerate()
+        .map(|(i, index)| (count - i, vec![index.into()]))
+        .collect()
 }
 
 fn get_symbol_name(symbol_data: &pdb::SymbolData) -> Option<String> {
@@ -1415,5 +1505,34 @@ fn symbol_priority(symbol_data: &pdb::SymbolData) -> u16 {
         // Exported symbols
         pdb::SymbolData::Export(_) => 2,
         _ => 10,
+    }
+}
+
+#[cfg(test)]
+mod dependency_order_tests {
+    use super::*;
+    #[test]
+    fn dependency_order_is_stable_and_dependencies_precede_owners() {
+        let graph = HashMap::from([(1, vec![(2, false), (3, true)]), (2, vec![])]);
+        let ordered = compute_type_depth_map(&graph, &[1]);
+        let values = ordered
+            .values()
+            .rev()
+            .flatten()
+            .map(|index| index.0)
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec![2, 1]);
+        assert_eq!(ordered, compute_type_depth_map(&graph, &[1]));
+    }
+    #[test]
+    fn cyclic_dependencies_terminate_and_emit_each_type_once() {
+        let graph = HashMap::from([(1, vec![(2, false)]), (2, vec![(1, false)])]);
+        let ordered = compute_type_depth_map(&graph, &[1]);
+        let values = ordered
+            .values()
+            .flatten()
+            .map(|index| index.0)
+            .collect::<HashSet<_>>();
+        assert_eq!(values, HashSet::from([1, 2]));
     }
 }

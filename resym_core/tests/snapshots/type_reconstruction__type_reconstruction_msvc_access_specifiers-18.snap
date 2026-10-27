@@ -1,8 +1,8 @@
 ---
 source: resym_core/tests/type_reconstruction.rs
-assertion_line: 103
 expression: reconstructed_type
 ---
+#pragma pack(push, 8)
 union resym_test::BitFieldsTest4 { /* Size=0x2 */
   struct {
     /* 0x0000 */ public: unsigned short b1 : 1; /* BitPos=0 */
@@ -10,3 +10,4 @@ union resym_test::BitFieldsTest4 { /* Size=0x2 */
     /* 0x0000 */ public: unsigned short b3 : 10; /* BitPos=6 */
   };
 };
+#pragma pack(pop)

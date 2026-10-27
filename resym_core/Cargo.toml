@@ -36,3 +36,4 @@ instant = { version = "0.1", features = ["wasm-bindgen"] }
 
 [dev-dependencies]
 insta = "1.14"
+tempdir = "0.3"

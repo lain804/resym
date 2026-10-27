@@ -2,7 +2,7 @@
 source: resym_core/tests/type_reconstruction.rs
 expression: reconstructed_type
 ---
-
+#pragma pack(push, 8)
 struct resym_test::StructUnnamedUdtTest3 { /* Size=0x40 */
   /* 0x0000 */ public: ULONGLONG Before;
   union {
@@ -28,4 +28,4 @@ struct resym_test::StructUnnamedUdtTest3 { /* Size=0x40 */
   };
   /* 0x0038 */ public: ULONGLONG After;
 };
-
+#pragma pack(pop)

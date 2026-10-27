@@ -1,0 +1,140 @@
+---
+source: resym_core/tests/layout_regressions.rs
+expression: dump(true)
+---
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+#ifndef __cplusplus
+typedef uint8_t char8_t;
+typedef uint16_t char16_t;
+typedef uint32_t char32_t;
+#endif
+typedef struct CallbackTable CallbackTable;
+typedef struct PackedRecord PackedRecord;
+typedef struct AlignedEntry AlignedEntry;
+typedef struct CacheLines CacheLines;
+typedef struct ForwardPointer ForwardPointer;
+typedef struct QualifiedRecord QualifiedRecord;
+typedef struct ArrayRecord ArrayRecord;
+typedef struct BitRecord BitRecord;
+typedef struct AnonymousEnumRecord AnonymousEnumRecord;
+typedef struct WideEnumRecord WideEnumRecord;
+typedef struct SignedEnumRecord SignedEnumRecord;
+typedef struct Qualifiers Qualifiers;
+typedef union ForwardValue ForwardValue;
+
+
+typedef int32_t CallbackResult;
+enum {
+  CallbackAccept = 0x0001,
+  CallbackReject = 0x0002,
+};
+
+typedef int32_t _unnamed_0x1026;
+enum {
+  AnonymousAccept = 0x0001,
+  AnonymousReject = 0x0002,
+};
+
+typedef uint64_t WideEnum;
+static const WideEnum WideValue = (WideEnum) (18446744073709551615ULL);
+
+typedef int32_t SignedEnum;
+enum {
+  SignedMinusOne = -1,
+  SignedMinusTwo = -2,
+  SignedMinus128 = -128,
+};
+
+#pragma pack(push, 8)
+struct CallbackTable { /* Size=0x10 */
+  /* 0x0000 */ CallbackResult (* query)(void*);
+  /* 0x0008 */ void (* (* exchange)(void (*)(uint32_t, volatile int32_t*)))(uint32_t, volatile int32_t*);
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct PackedRecord { /* Size=0x9 */
+  /* 0x0000 */ unsigned char tag;
+  /* 0x0001 */ uint64_t value;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct AlignedEntry { /* Size=0x10 */
+  /* 0x0000 */ void* next;
+  /* 0x0008 */ unsigned char __resym_padding_0[8];
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct CacheLines { /* Size=0xc0 */
+  /* 0x0000 */ uint32_t first;
+  /* 0x0004 */ unsigned char __resym_padding_0[60];
+  /* 0x0040 */ uint32_t second;
+  /* 0x0044 */ unsigned char __resym_padding_1[60];
+  /* 0x0080 */ uint32_t third;
+  /* 0x0084 */ unsigned char __resym_padding_2[60];
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct ForwardPointer { /* Size=0x8 */
+  /* 0x0000 */ const ForwardValue* pointer;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct BitRecord { /* Size=0x8 */
+  /* 0x0000 */ uint32_t first : 3; /* BitPos=0 */
+  /* 0x0000 */ uint32_t : 2; /* BitPos=3 */
+  /* 0x0000 */ uint32_t second : 6; /* BitPos=5 */
+  /* 0x0000 */ uint32_t third : 2; /* BitPos=11 */
+  /* 0x0004 */ unsigned char after;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct AnonymousEnumRecord { /* Size=0x4 */
+  /* 0x0000 */ _unnamed_0x1026 result;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct WideEnumRecord { /* Size=0x8 */
+  /* 0x0000 */ WideEnum value;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+union ForwardValue { /* Size=0x8 */
+  /* 0x0000 */ uint64_t value;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct QualifiedRecord { /* Size=0x10 */
+  /* 0x0000 */ volatile ForwardValue value;
+  /* 0x0008 */ uint32_t after;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct ArrayRecord { /* Size=0x8 */
+  /* 0x0000 */ ForwardValue values[1];
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct SignedEnumRecord { /* Size=0x4 */
+  /* 0x0000 */ SignedEnum value;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 8)
+struct Qualifiers { /* Size=0x10 */
+  /* 0x0000 */ const volatile uint32_t* both;
+  /* 0x0008 */ uint32_t* fixed;
+};
+#pragma pack(pop)

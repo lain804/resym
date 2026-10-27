@@ -2,7 +2,7 @@
 source: resym_core/tests/type_reconstruction.rs
 expression: reconstructed_type
 ---
-
+#pragma pack(push, 8)
 struct resym_test::NestedStructUnionRegression1 { /* Size=0x78 */
   /* 0x0000 */ public: _LIST_ENTRY TransactionListEntry;
   /* 0x0010 */ public: resym_test::_CM_INTENT_LOCK* KCBLock;
@@ -12,7 +12,9 @@ struct resym_test::NestedStructUnionRegression1 { /* Size=0x78 */
   /* 0x0038 */ public: resym_test::_CM_TRANS* Transaction;
   /* 0x0040 */ public: uint32_t UoWState;
   /* 0x0044 */ public: resym_test::UoWActionType ActionType;
+  /* 0x0044 */ unsigned char __resym_padding_0[4];
   /* 0x0048 */ public: resym_test::HSTORAGE_TYPE StorageType;
+  /* 0x0048 */ unsigned char __resym_padding_1[8];
   /* 0x0050 */ public: resym_test::_CM_KCB_UOW* ParentUoW;
   union {
     /* 0x0058 */ public: resym_test::_CM_KEY_CONTROL_BLOCK* ChildKCB;
@@ -44,4 +46,4 @@ struct resym_test::NestedStructUnionRegression1 { /* Size=0x78 */
     /* 0x0070 */ public: resym_test::_CMP_DISCARD_AND_REPLACE_KCB_CONTEXT* DiscardReplaceContext;
   };
 };
-
+#pragma pack(pop)

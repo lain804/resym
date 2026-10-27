@@ -3,11 +3,14 @@ source: resym_core/tests/type_diffing.rs
 expression: diffed_type.data
 ---
  
+ #pragma pack(push, 8)
 -struct UserStructAdd { /* Size=0x10 */
 +struct UserStructAdd { /* Size=0x18 */
    /* 0x0000 */ int32_t field1;
+   /* 0x0004 */ unsigned char __resym_padding_0[4];
    /* 0x0008 */ void* field2;
 +  /* 0x0010 */ char field3;
++  /* 0x0011 */ unsigned char __resym_padding_1[3];
 +  /* 0x0014 */ int32_t field4;
  };
-
+ #pragma pack(pop)

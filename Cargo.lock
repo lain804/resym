@@ -3389,6 +3389,7 @@ dependencies = [
  "rayon",
  "regex",
  "similar",
+ "tempdir",
  "thiserror 1.0.69",
  "url",
  "wasm_thread",

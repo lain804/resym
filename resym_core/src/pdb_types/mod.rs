@@ -2,6 +2,7 @@ mod class;
 mod enumeration;
 mod field;
 mod forward_declaration;
+mod layout;
 mod method;
 mod primitive_types;
 mod union;
@@ -72,7 +73,15 @@ pub fn type_name(
 
         pdb::TypeData::Enumeration(data) => {
             needed_types.insert((type_index, false));
-            (data.name.to_string().into_owned(), String::default())
+            let name = data.name.to_string();
+            (
+                if is_unnamed_type(&name) {
+                    format!("_unnamed_{type_index}")
+                } else {
+                    name.into_owned()
+                },
+                String::default(),
+            )
         }
 
         pdb::TypeData::Pointer(data) => {
@@ -88,7 +97,14 @@ pub fn type_name(
                 &mut temporary_needed_types,
             )?;
 
-            if temporary_needed_types.len() < 2 {
+            let mut pointee = complete_underlying_type_index;
+            while let pdb::TypeData::Modifier(modifier) = type_finder.find(pointee)?.parse()? {
+                pointee = resolve_complete_type_index(type_forwarder, modifier.underlying_type);
+            }
+            if matches!(
+                type_finder.find(pointee)?.parse()?,
+                pdb::TypeData::Class(_) | pdb::TypeData::Union(_)
+            ) {
                 // "Simple" type (e.g., class, union, enum) -> add as pointer
                 if let Some(needed_type) = temporary_needed_types.into_iter().next() {
                     needed_types.insert((needed_type.0, true));
@@ -117,13 +133,21 @@ pub fn type_name(
                 needed_types,
             )?;
 
-            if data.constant {
-                (format!("const {type_left}"), type_right)
-            } else if data.volatile {
-                (format!("volatile {type_left}"), type_right)
-            } else {
-                // ?
+            let qualifiers = match (data.constant, data.volatile) {
+                (true, true) => "const volatile",
+                (true, false) => "const",
+                (false, true) => "volatile",
+                (false, false) => "",
+            };
+            if qualifiers.is_empty() {
                 (type_left, type_right)
+            } else if matches!(
+                type_finder.find(complete_underlying_type_index)?.parse()?,
+                pdb::TypeData::Pointer(_)
+            ) {
+                (format!("{type_left} {qualifiers}"), type_right)
+            } else {
+                (format!("{qualifiers} {type_left}"), type_right)
             }
         }
 
@@ -138,7 +162,11 @@ pub fn type_name(
                 primitive_flavor,
                 needed_types,
             )?;
-            let type_size = u32::try_from(type_size(type_finder, complete_element_type_index)?)?;
+            let type_size = u32::try_from(type_size(
+                type_finder,
+                type_forwarder,
+                complete_element_type_index,
+            )?)?;
             let mut divider = if type_size == 0 {
                 log::warn!(
                     "'{}{}' has invalid size (0), array dimensions might be incorrect",
@@ -210,9 +238,9 @@ pub fn type_name(
             )?;
 
             (
-                format!("{ret_type_left}{ret_type_right} ("),
+                format!("{ret_type_left} ("),
                 format!(
-                    ")({})",
+                    ")({}){ret_type_right}",
                     arg_list
                         .into_iter()
                         .map(|(type_left, type_right)| format!("{type_left}{type_right}"))
@@ -298,7 +326,11 @@ fn array_base_name(
                 primitive_flavor,
                 needed_types,
             )?;
-            let type_size = u32::try_from(type_size(type_finder, complete_element_type_index)?)?;
+            let type_size = u32::try_from(type_size(
+                type_finder,
+                type_forwarder,
+                complete_element_type_index,
+            )?)?;
             let mut divider = if type_size == 0 {
                 log::warn!(
                     "'{}{}' has invalid size (0), array dimensions might be incorrect",
@@ -377,13 +409,19 @@ pub fn type_bitfield_info(
 }
 
 /// Return the type's size in bytes.
-pub fn type_size(type_finder: &pdb::TypeFinder, type_index: pdb::TypeIndex) -> Result<usize> {
+pub fn type_size(
+    type_finder: &pdb::TypeFinder,
+    type_forwarder: &TypeForwarder,
+    type_index: pdb::TypeIndex,
+) -> Result<usize> {
+    let type_index = resolve_complete_type_index(type_forwarder, type_index);
     let size = match type_finder.find(type_index)?.parse()? {
         pdb::TypeData::Primitive(data) => {
             let mut size = match data.kind {
                 pdb::PrimitiveKind::Char
                 | pdb::PrimitiveKind::RChar
                 | pdb::PrimitiveKind::UChar
+                | pdb::PrimitiveKind::Char8
                 | pdb::PrimitiveKind::I8
                 | pdb::PrimitiveKind::U8
                 | pdb::PrimitiveKind::Bool8 => 1,
@@ -403,6 +441,8 @@ pub fn type_size(type_finder: &pdb::TypeFinder, type_index: pdb::TypeIndex) -> R
                 | pdb::PrimitiveKind::ULong
                 | pdb::PrimitiveKind::F32
                 | pdb::PrimitiveKind::Bool32 => 4,
+
+                pdb::PrimitiveKind::HRESULT => 4,
 
                 pdb::PrimitiveKind::I64
                 | pdb::PrimitiveKind::Quad
@@ -430,7 +470,9 @@ pub fn type_size(type_finder: &pdb::TypeFinder, type_index: pdb::TypeIndex) -> R
 
         pdb::TypeData::Class(data) => data.size as usize,
 
-        pdb::TypeData::Enumeration(data) => type_size(type_finder, data.underlying_type)?,
+        pdb::TypeData::Enumeration(data) => {
+            type_size(type_finder, type_forwarder, data.underlying_type)?
+        }
 
         pdb::TypeData::Union(data) => data.size as usize,
 
@@ -450,7 +492,13 @@ pub fn type_size(type_finder: &pdb::TypeFinder, type_index: pdb::TypeIndex) -> R
             pdb::PointerKind::Ptr64 => 8,
         },
 
-        pdb::TypeData::Modifier(data) => type_size(type_finder, data.underlying_type)?,
+        pdb::TypeData::Modifier(data) => {
+            type_size(type_finder, type_forwarder, data.underlying_type)?
+        }
+
+        pdb::TypeData::Bitfield(data) => {
+            type_size(type_finder, type_forwarder, data.underlying_type)?
+        }
 
         pdb::TypeData::Array(data) => *data.dimensions.iter().last().unwrap_or(&0) as usize,
 
@@ -501,11 +549,102 @@ impl Data<'_> {
         type_depth_map: &BTreeMap<usize, Vec<pdb::TypeIndex>>,
         output_writer: &mut impl std::fmt::Write,
     ) -> Result<()> {
+        if fmt_configuration.c_compatible {
+            let identifier =
+                regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").expect("constant regex");
+            for class in self.classes.values() {
+                if self.ignore_std_types && class.name.starts_with("std::") {
+                    continue;
+                }
+                if !identifier.is_match(&class.name)
+                    || class.kind != pdb::ClassKind::Struct
+                    || !class.base_classes.is_empty()
+                    || !class.instance_methods.is_empty()
+                    || !class.static_methods.is_empty()
+                    || !class.static_fields.is_empty()
+                    || !class.nested_classes.is_empty()
+                    || !class.nested_unions.is_empty()
+                    || !class.nested_enums.is_empty()
+                    || class.fields.iter().any(|field| {
+                        field.type_left.contains('&') || field.type_right.contains('&')
+                    })
+                {
+                    return Err(ResymCoreError::NotImplementedError(format!(
+                        "C output cannot represent C++ type '{}'",
+                        class.name
+                    )));
+                }
+            }
+            for union in self.unions.values() {
+                if self.ignore_std_types && union.name.starts_with("std::") {
+                    continue;
+                }
+                if !identifier.is_match(&union.name)
+                    || !union.instance_methods.is_empty()
+                    || !union.static_methods.is_empty()
+                    || !union.static_fields.is_empty()
+                    || !union.nested_classes.is_empty()
+                    || !union.nested_unions.is_empty()
+                    || !union.nested_enums.is_empty()
+                    || union.fields.iter().any(|field| {
+                        field.type_left.contains('&') || field.type_right.contains('&')
+                    })
+                {
+                    return Err(ResymCoreError::NotImplementedError(format!(
+                        "C output cannot represent C++ union '{}'",
+                        union.name
+                    )));
+                }
+            }
+            for e in self.enums.values() {
+                if !identifier.is_match(&e.name) {
+                    return Err(ResymCoreError::NotImplementedError(format!(
+                        "C output cannot represent C++ enum '{}'",
+                        e.name
+                    )));
+                }
+            }
+            writeln!(output_writer, "#include <stdint.h>\n#include <stddef.h>\n#include <stdbool.h>\n#ifndef __cplusplus\ntypedef uint8_t char8_t;\ntypedef uint16_t char16_t;\ntypedef uint32_t char32_t;\n#endif")?;
+            let mut declared = HashSet::new();
+            for c in self.classes.values() {
+                if self.ignore_std_types && c.name.starts_with("std::") {
+                    continue;
+                }
+                if declared.insert(c.name.clone()) {
+                    writeln!(output_writer, "typedef struct {} {};", c.name, c.name)?;
+                }
+            }
+            for u in self.unions.values() {
+                if self.ignore_std_types && u.name.starts_with("std::") {
+                    continue;
+                }
+                if declared.insert(u.name.clone()) {
+                    writeln!(output_writer, "typedef union {} {};", u.name, u.name)?;
+                }
+            }
+            for d in self.forward_declarations.values() {
+                if self.ignore_std_types && d.name.starts_with("std::") {
+                    continue;
+                }
+                if !identifier.is_match(&d.name) {
+                    return Err(ResymCoreError::NotImplementedError(format!(
+                        "C output cannot represent type '{}'",
+                        d.name
+                    )));
+                }
+                if declared.insert(d.name.clone()) {
+                    d.reconstruct(fmt_configuration, output_writer)?;
+                }
+            }
+        }
         // Forward declarations
         if !self.forward_declarations.is_empty() {
             writeln!(output_writer)?;
         }
         for e in self.forward_declarations.values() {
+            if fmt_configuration.c_compatible {
+                continue;
+            }
             if self.ignore_std_types && e.name.starts_with("std::") {
                 // Type is in the `std` namespace and should be ignored
                 continue;
@@ -513,21 +652,21 @@ impl Data<'_> {
             e.reconstruct(fmt_configuration, output_writer)?;
         }
 
+        // Enums can occur behind pointers or in callbacks; define them before use.
+        for e in self.enums.values() {
+            if self.ignore_std_types && e.name.starts_with("std::") {
+                continue;
+            }
+            writeln!(output_writer)?;
+            e.reconstruct(fmt_configuration, output_writer)?;
+        }
+
         if !type_depth_map.is_empty() {
             // Follow type depth map order
             for type_indices in type_depth_map.values().rev() {
                 for type_index in type_indices.iter() {
-                    // Enum definitions
-                    if let Some(e) = self.enums.get(type_index) {
-                        if self.ignore_std_types && e.name.starts_with("std::") {
-                            // Type is in the `std` namespace and should be ignored
-                            continue;
-                        }
-                        writeln!(output_writer)?;
-                        e.reconstruct(fmt_configuration, output_writer)?;
-                    }
-                    // Class definitions
-                    else if let Some(c) = self.classes.get(type_index) {
+                    // Aggregate definitions follow dependency order.
+                    if let Some(c) = self.classes.get(type_index) {
                         if self.ignore_std_types && c.name.starts_with("std::") {
                             // Type is in the `std` namespace and should be ignored
                             continue;
@@ -549,16 +688,6 @@ impl Data<'_> {
         } else {
             // Follow type index order
             //
-            // Enum definitions
-            for e in self.enums.values() {
-                if self.ignore_std_types && e.name.starts_with("std::") {
-                    // Type is in the `std` namespace and should be ignored
-                    continue;
-                }
-                writeln!(output_writer)?;
-                e.reconstruct(fmt_configuration, output_writer)?;
-            }
-
             // Class/struct definitions
             for class in self.classes.values() {
                 if self.ignore_std_types && class.name.starts_with("std::") {
@@ -728,6 +857,7 @@ impl<'p> Data<'p> {
                 let mut e = Enum {
                     index: type_index,
                     name: name.clone(),
+                    unsigned_width: Enum::unsigned_width(type_finder, data.underlying_type)?,
                     underlying_type_name: type_name(
                         type_finder,
                         type_forwarder,
@@ -1114,6 +1244,8 @@ fn find_unnamed_structs_in_unions(fields: &[Field]) -> Vec<Range<usize>> {
 pub struct DataFormatConfiguration {
     pub print_access_specifiers: bool,
     pub integers_as_hexadecimal: bool,
+    /// Emit C11 storage declarations. Reject unsupported C++ constructs.
+    pub c_compatible: bool,
 }
 
 impl Default for DataFormatConfiguration {
@@ -1121,6 +1253,7 @@ impl Default for DataFormatConfiguration {
         Self {
             print_access_specifiers: true,
             integers_as_hexadecimal: true,
+            c_compatible: false,
         }
     }
 }

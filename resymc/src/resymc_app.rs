@@ -927,13 +927,25 @@ mod tests {
         assert_eq!(
             output,
             concat!(
-                " \n-struct UserStructAddAndReplace { /* Size=0x10 */\n",
-                "-  /* 0x0000 */ int32_t field1;\n-  /* 0x0004 */ char field2;\n",
-                "-  /* 0x0008 */ void* field3;\n+struct UserStructAddAndReplace { /* Size=0x28 */\n",
-                "+  /* 0x0000 */ int32_t before1;\n+  /* 0x0004 */ int32_t field1;\n",
-                "+  /* 0x0008 */ int32_t between12;\n+  /* 0x000c */ char field2;\n",
-                "+  /* 0x0010 */ int32_t between23;\n+  /* 0x0018 */ void* field3;\n",
-                "+  /* 0x0020 */ int32_t after3;\n };\n",
+                " \n",
+                " #pragma pack(push, 8)\n",
+                "-struct UserStructAddAndReplace { /* Size=0x10 */\n",
+                "-  /* 0x0000 */ int32_t field1;\n",
+                "-  /* 0x0004 */ char field2;\n",
+                "-  /* 0x0005 */ unsigned char __resym_padding_0[3];\n",
+                "-  /* 0x0008 */ void* field3;\n",
+                "+struct UserStructAddAndReplace { /* Size=0x28 */\n",
+                "+  /* 0x0000 */ int32_t before1;\n",
+                "+  /* 0x0004 */ int32_t field1;\n",
+                "+  /* 0x0008 */ int32_t between12;\n",
+                "+  /* 0x000c */ char field2;\n",
+                "+  /* 0x000d */ unsigned char __resym_padding_0[3];\n",
+                "+  /* 0x0010 */ int32_t between23;\n",
+                "+  /* 0x0014 */ unsigned char __resym_padding_1[4];\n",
+                "+  /* 0x0018 */ void* field3;\n",
+                "+  /* 0x0020 */ int32_t after3;\n",
+                " };\n",
+                " #pragma pack(pop)\n",
             )
         );
     }

@@ -2,6 +2,7 @@
 source: resym_core/tests/type_reconstruction.rs
 expression: reconstructed_type
 ---
+#pragma pack(push, 8)
 struct resym_test::StructUnnamedUdtTest2 { /* Size=0x30 */
   /* 0x0000 */ public: unsigned long long int Before;
   union {
@@ -21,3 +22,4 @@ struct resym_test::StructUnnamedUdtTest2 { /* Size=0x30 */
   };
   /* 0x0028 */ public: unsigned long long int After;
 };
+#pragma pack(pop)

@@ -3,7 +3,8 @@ source: resym_core/tests/type_diffing.rs
 expression: diffed_type.data
 ---
 -
+-#pragma pack(push, 8)
 -struct RemovedStruct { /* Size=0x4 */
 -  /* 0x0000 */ int32_t field;
 -};
-
+-#pragma pack(pop)
