@@ -8,18 +8,49 @@ use resym_core::pdb_types::PrimitiveReconstructionFlavor;
 use structopt::StructOpt;
 
 use crate::resymc_app::ResymcApp;
-use crate::resymc_options::ResymcOptions;
+use crate::resymc_options::{ResymcCommand, ResymcOptions};
 
 const DEFAULT_PRIMITIVE_FLAVOR: PrimitiveReconstructionFlavor = PrimitiveReconstructionFlavor::Msvc;
 
 fn main() -> Result<()> {
     env_logger::init();
-    let app = ResymcApp::new()?;
 
     // Process command and options
     let opt = ResymcOptions::from_args();
-    match opt {
-        ResymcOptions::List {
+    if opt.c_compatible {
+        // Validate flag combinations before opening the input or output.
+        opt.validate()?;
+        let pdb = resym_core::pdb_file::PdbFile::load_from_file(&opt.pdb_path)?;
+        let format = resym_core::pdb_types::DataFormatConfiguration {
+            print_access_specifiers: false,
+            integers_as_hexadecimal: opt.integers_as_hexadecimal,
+            c_compatible: true,
+        };
+        let output = pdb.reconstruct_types(
+            opt.dump.as_deref(),
+            opt.primitive_types_flavor
+                .unwrap_or(DEFAULT_PRIMITIVE_FLAVOR),
+            opt.print_dependencies,
+            opt.ignore_std_types,
+            &format,
+        )?;
+        if let Some(path) = opt.output_file_path.or(opt.positional_output_file_path) {
+            std::fs::write(path, output)?;
+        } else if opt.highlight_syntax {
+            let theme = resym_core::syntax_highlighting::CodeTheme::default();
+            print!(
+                "{}",
+                crate::syntax_highlighting::highlight_code(&theme, &output, None).unwrap_or(output)
+            );
+        } else {
+            print!("{output}");
+        }
+        return Ok(());
+    }
+    let command = opt.into_command()?;
+    let app = ResymcApp::new()?;
+    match command {
+        ResymcCommand::List {
             pdb_path,
             type_name_filter,
             output_file_path,
@@ -34,7 +65,7 @@ fn main() -> Result<()> {
             ignore_std_types,
             output_file_path,
         ),
-        ResymcOptions::Dump {
+        ResymcCommand::Dump {
             pdb_path,
             type_name,
             output_file_path,
@@ -57,7 +88,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::DumpAll {
+        ResymcCommand::DumpAll {
             pdb_path,
             output_file_path,
             primitive_types_flavor,
@@ -78,7 +109,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::Diff {
+        ResymcCommand::Diff {
             from_pdb_path,
             to_pdb_path,
             type_name,
@@ -103,7 +134,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::ListModules {
+        ResymcCommand::ListModules {
             pdb_path,
             module_path_filter,
             output_file_path,
@@ -116,7 +147,7 @@ fn main() -> Result<()> {
             use_regex,
             output_file_path,
         ),
-        ResymcOptions::DumpModule {
+        ResymcCommand::DumpModule {
             pdb_path,
             module_id,
             output_file_path,
@@ -133,7 +164,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::DiffModule {
+        ResymcCommand::DiffModule {
             from_pdb_path,
             to_pdb_path,
             module_path,
@@ -152,7 +183,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::ListSymbols {
+        ResymcCommand::ListSymbols {
             pdb_path,
             symbol_name_filter,
             output_file_path,
@@ -167,7 +198,7 @@ fn main() -> Result<()> {
             ignore_std_types,
             output_file_path,
         ),
-        ResymcOptions::DumpSymbol {
+        ResymcCommand::DumpSymbol {
             pdb_path,
             symbol_name,
             output_file_path,
@@ -184,7 +215,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::DumpAllSymbols {
+        ResymcCommand::DumpAllSymbols {
             pdb_path,
             output_file_path,
             primitive_types_flavor,
@@ -200,7 +231,7 @@ fn main() -> Result<()> {
             highlight_syntax,
             output_file_path,
         ),
-        ResymcOptions::DiffSymbol {
+        ResymcCommand::DiffSymbol {
             from_pdb_path,
             to_pdb_path,
             symbol_name,
